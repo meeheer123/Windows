@@ -2,8 +2,10 @@ import tkinter as tk
 from tkinter import messagebox
 import subprocess
 import threading
+import datetime
 import sqlite3
 import os
+import json
 
 def initialize_database():
     """Initialize the SQLite database and create the necessary table."""
@@ -14,7 +16,8 @@ def initialize_database():
             prn TEXT PRIMARY KEY,
             name TEXT,
             fingerprint_file TEXT,
-            fingerprint_data BLOB
+            fingerprint_data BLOB,
+            verification_timestamps TEXT DEFAULT '[]'
         )
     ''')
     conn.commit()
@@ -31,16 +34,20 @@ def save_to_database(prn, name, fingerprint_file):
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO users (prn, name, fingerprint_file, fingerprint_data) VALUES (?, ?, ?, ?)",
-            (prn, name, fingerprint_file, fingerprint_data)
+            (prn.upper(), name, fingerprint_file, fingerprint_data)
         )
         conn.commit()
         conn.close()
     except sqlite3.IntegrityError:
         messagebox.showerror("Database Error", "A user with this PRN already exists.")
+        return "already exists"
     except FileNotFoundError:
         messagebox.showerror("File Error", f"The fingerprint file '{fingerprint_file}' was not found.")
     except Exception as e:
         messagebox.showerror("Database Error", f"An unexpected error occurred: {e}")
+    finally:
+        # Ensure the connection is closed properly
+        conn.close()
 
 def capture_fingerprint(prn, name, status_label):
     """Run the C++ fingerprint capture executable with provided PRN and name."""
@@ -56,9 +63,12 @@ def capture_fingerprint(prn, name, status_label):
 
         if result.returncode == 0:
             if os.path.exists(fingerprint_file):
-                save_to_database(prn, name, fingerprint_file)
-                messagebox.showinfo("Success", "Fingerprint captured and saved successfully!")
-                status_label.config(text="Status: Fingerprint captured successfully.")
+                res = save_to_database(prn, name, fingerprint_file)
+                if res != "already exists":
+                    messagebox.showinfo("Success", "Fingerprint captured and saved successfully!")
+                    status_label.config(text="Status: Fingerprint captured successfully.")
+                else:
+                    status_label.config(text="Status: User with PRN already exists.")
             else:
                 raise FileNotFoundError(f"Expected fingerprint file not found: {fingerprint_file}")
         else:
@@ -155,13 +165,15 @@ def verify_fingerprint_in_db(status_label):
 
         conn = sqlite3.connect("fingerprint_data.db")
         cursor = conn.cursor()
-        cursor.execute("SELECT prn, name, fingerprint_data FROM users")
+        cursor.execute("SELECT prn, name, fingerprint_data, verification_timestamps FROM users")
         users = cursor.fetchall()
 
         match_found = False
 
         for user in users:
-            stored_prn, stored_name, stored_fingerprint_data = user
+            stored_prn, stored_name, stored_fingerprint_data, timestamps_json = user
+            timestamps = json.loads(timestamps_json) if timestamps_json else []
+
             # Convert the stored BLOB to a FIR file for comparison
             stored_fingerprint_file = f"dataFingerprint.fir"
             blob_to_fir(stored_fingerprint_data, stored_prn)
@@ -173,10 +185,18 @@ def verify_fingerprint_in_db(status_label):
                 "verify.exe"
             ], capture_output=True, text=True)
 
-            print(verify_result.returncode)
-
             if verify_result.returncode == 0:
-                # Check the output for match result
+                # Append the current timestamp to the verification timestamps
+                current_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                timestamps.append(current_timestamp)
+
+                # Update the timestamps in the database
+                cursor.execute(
+                    "UPDATE users SET verification_timestamps = ? WHERE prn = ?",
+                    (json.dumps(timestamps), stored_prn)
+                )
+                conn.commit()
+
                 messagebox.showinfo("Verification Success", f"Fingerprint for {stored_name} (PRN: {stored_prn}) matched!")
                 status_label.config(text=f"Status: Fingerprint matched for PRN: {stored_prn}.")
                 match_found = True
