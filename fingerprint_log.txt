@@ -1,4 +1,0 @@
-Fingerprint matched successfully!
-Fingerprint did not match.
-Fingerprint matched successfully!
-Fingerprint did not match.

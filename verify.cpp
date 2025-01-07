@@ -53,7 +53,7 @@ int main() {
         }
 
         // Load existing FIR from file
-        LoadFIRFromFile("fingerprint_20250107_160236.fir", existingFIR);
+        LoadFIRFromFile("fingerprint_20250107_162156.fir", existingFIR);
 
         // Open fingerprint device
         ret = NBioAPI_OpenDevice(g_hBSP, deviceID);
