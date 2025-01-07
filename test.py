@@ -46,7 +46,7 @@ def capture_fingerprint(prn, name, status_label):
     """Run the C++ fingerprint capture executable with provided PRN and name."""
     try:
         status_label.config(text="Status: Capturing fingerprint, please wait...")
-        fingerprint_file = f"fingerprint_{prn}.fir"
+        fingerprint_file = f"fingerprint.fir"
         result = subprocess.run([
             "fingerprint_app.exe",
             prn,
@@ -112,7 +112,7 @@ def open_capture_dialog(status_label):
 def blob_to_fir(blob_data, prn):
     """Convert BLOB data from the database to a .fir file."""
     try:
-        filename = f"fingerprint_{prn}.fir"
+        filename = f"dataFingerprint.fir"
         with open(filename, "wb") as f:
             f.write(blob_data)
         print(f"Fingerprint data saved as {filename}.")
@@ -134,14 +134,12 @@ def verify_fingerprint_in_db(status_label):
     """Capture a fingerprint and verify it against stored fingerprints in the database."""
     try:
         status_label.config(text="Status: Verifying fingerprint, please wait...")
-        captured_file = "fingerprint.fir"
+        captured_file = "fingerprint.fir"  # This file should be captured by the capture program
 
         print("Running fingerprint capture...")
         result = subprocess.run([
-            "fingerprint_app.exe", "capture", captured_file
+            "fingerprint_app.exe", "capture", captured_file  # Adjust the executable name as needed
         ], capture_output=True, text=True)
-
-        print(result)
 
         if result.returncode != 0:
             print(f"Error: {result.stderr}")
@@ -160,20 +158,37 @@ def verify_fingerprint_in_db(status_label):
         cursor.execute("SELECT prn, name, fingerprint_data FROM users")
         users = cursor.fetchall()
 
+        match_found = False
+
         for user in users:
             stored_prn, stored_name, stored_fingerprint_data = user
             # Convert the stored BLOB to a FIR file for comparison
+            stored_fingerprint_file = f"dataFingerprint.fir"
             blob_to_fir(stored_fingerprint_data, stored_prn)
 
-            # Compare captured fingerprint with stored fingerprint
-            if captured_data == stored_fingerprint_data:
-                messagebox.showinfo("Verification Success", f"Fingerprint verified successfully for {stored_name} ({stored_prn}).")
-                status_label.config(text="Status: Fingerprint verified successfully.")
-                conn.close()
-                return
+            # Call verify.exe to compare the two FIR files
+            print(f"Comparing captured fingerprint with stored fingerprint for {stored_name}...")
 
-        messagebox.showerror("Verification Failed", "No matching fingerprint found in the database.")
-        status_label.config(text="Status: No matching fingerprint found.")
+            verify_result = subprocess.run([
+                "verify.exe"
+            ], capture_output=True, text=True)
+
+            print(verify_result.returncode)
+
+            if verify_result.returncode == 0:
+                # Check the output for match result
+                messagebox.showinfo("Verification Success", f"Fingerprint for {stored_name} (PRN: {stored_prn}) matched!")
+                status_label.config(text=f"Status: Fingerprint matched for PRN: {stored_prn}.")
+                match_found = True
+                break  # Exit the loop when a match is found
+            else:
+                print(f"Error during verification: {verify_result.stderr}")
+
+        if not match_found:
+            # If no match was found in the database
+            messagebox.showerror("Verification Failed", "No matching fingerprint found in the database.")
+            status_label.config(text="Status: No matching fingerprint found.")
+        
         conn.close()
 
     except FileNotFoundError as e:

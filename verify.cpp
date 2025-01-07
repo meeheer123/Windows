@@ -2,12 +2,13 @@
 #include <stdexcept>
 #include "NBioAPI.h"
 #include <iostream>
+#include <ctime> // for time and date in log
 
 // Function to load an FIR from a file
 NBioAPI_RETURN LoadFIRFromFile(const std::string& filePath, NBioAPI_FIR& fir) {
     std::ifstream file(filePath, std::ios::binary);
     if (!file.is_open()) {
-        throw std::runtime_error("Failed to open FIR file.");
+        throw std::runtime_error("Failed to open FIR file: " + filePath);
     }
 
     // Read FIR format
@@ -35,6 +36,21 @@ void FreeFIR(NBioAPI_FIR& fir) {
     fir.Data = nullptr;
 }
 
+// Function to log the result of the fingerprint verification
+void LogResult(bool isMatch, const std::string& logFilePath) {
+    std::ofstream logFile(logFilePath, std::ios::app); // Append mode
+    if (logFile.is_open()) {
+        // Get current time for logging timestamp
+        std::time_t currentTime = std::time(nullptr);
+        char timeBuffer[100];
+        std::strftime(timeBuffer, sizeof(timeBuffer), "%Y-%m-%d %H:%M:%S", std::localtime(&currentTime));
+
+        // Write the result to the log
+        logFile << "[" << timeBuffer << "] Match result: " << (isMatch ? "Success" : "Failure") << std::endl;
+        logFile.close();
+    }
+}
+
 int main() {
     NBioAPI_RETURN ret;
     NBioAPI_HANDLE g_hBSP = 0;
@@ -48,46 +64,25 @@ int main() {
         // Initialize the SDK
         ret = NBioAPI_Init(&g_hBSP);
         if (ret != NBioAPIERROR_NONE) {
-            std::cerr << "Failed to initialize NBioAPI. Error code: " << ret << std::endl;
-            return -1;
+            LogResult(false, "fingerprint_verification_log.txt");
+            return 1; // Failure
         }
 
-        // Load existing FIR from file
-        LoadFIRFromFile("fingerprint.fir", existingFIR);
-
-        // Open fingerprint device
-        ret = NBioAPI_OpenDevice(g_hBSP, deviceID);
+        // Load the first FIR (fingerprint.fir)
+        ret = LoadFIRFromFile("fingerprint.fir", existingFIR);
         if (ret != NBioAPIERROR_NONE) {
-            std::cerr << "Failed to open fingerprint device. Error code: " << ret << std::endl;
-            FreeFIR(existingFIR);
             NBioAPI_Terminate(g_hBSP);
-            return -1;
+            LogResult(false, "fingerprint_verification_log.txt");
+            return 1; // Failure
         }
 
-        NBioAPI_WINDOW_OPTION windowOption = { 0 };
-        windowOption.Length = sizeof(NBioAPI_WINDOW_OPTION);
-        windowOption.WindowStyle = NBioAPI_WINDOW_STYLE_INVISIBLE;
-
-
-        // Capture a new fingerprint
-        ret = NBioAPI_Capture(g_hBSP, NBioAPI_FIR_PURPOSE_VERIFY, &capturedFIR, 10000, nullptr, &windowOption);
+        // Load the second FIR (dataFingerprint.fir)
+        ret = LoadFIRFromFile("dataFingerprint.fir", capturedFIRData);
         if (ret != NBioAPIERROR_NONE) {
-            std::cerr << "Failed to capture fingerprint. Error code: " << ret << std::endl;
             FreeFIR(existingFIR);
-            NBioAPI_CloseDevice(g_hBSP, deviceID);
             NBioAPI_Terminate(g_hBSP);
-            return -1;
-        }
-
-        // Retrieve FIR data from captured handle
-        ret = NBioAPI_GetFIRFromHandle(g_hBSP, capturedFIR, &capturedFIRData);
-        if (ret != NBioAPIERROR_NONE) {
-            std::cerr << "Failed to retrieve captured FIR data. Error code: " << ret << std::endl;
-            FreeFIR(existingFIR);
-            NBioAPI_FreeFIRHandle(g_hBSP, capturedFIR);
-            NBioAPI_CloseDevice(g_hBSP, deviceID);
-            NBioAPI_Terminate(g_hBSP);
-            return -1;
+            LogResult(false, "fingerprint_verification_log.txt");
+            return 1; // Failure
         }
 
         // Prepare inputs for matching
@@ -100,42 +95,32 @@ int main() {
         // Perform matching
         ret = NBioAPI_VerifyMatch(g_hBSP, &inputFIRStored, &inputFIRCaptured, &matchResult, nullptr);
         if (ret == NBioAPIERROR_NONE) {
-            // Log result to a file
-            std::ofstream logFile("fingerprint_log.txt", std::ios::app);
-            if (logFile.is_open()) {
-                if (matchResult == NBioAPI_TRUE) {
-                    logFile << "Fingerprint matched successfully!\n";
-                } else {
-                    logFile << "Fingerprint did not match.\n";
-                }
-                logFile.close();
+            // Log the match result (Success or Failure)
+            LogResult(matchResult == NBioAPI_TRUE, "fingerprint_verification_log.txt");
+
+            if (matchResult == NBioAPI_TRUE) {
+                return 0; // Match found
             } else {
-                std::cerr << "Failed to open log file for writing results." << std::endl;
+                return 1; // No match found
             }
         } else {
-            std::cerr << "Fingerprint matching failed. Error code: " << ret << std::endl;
+            LogResult(false, "fingerprint_verification_log.txt");
+            return 1; // Failure in verification
         }
 
         // Free FIR resources
         FreeFIR(existingFIR);
-        NBioAPI_FreeFIR(g_hBSP, &capturedFIRData);
+        FreeFIR(capturedFIRData);
 
         // Cleanup and terminate
-        NBioAPI_FreeFIRHandle(g_hBSP, capturedFIR);
-        NBioAPI_CloseDevice(g_hBSP, deviceID);
         NBioAPI_Terminate(g_hBSP);
 
-        return 0; // Exit successfully
+        return 1; // Unexpected case
     } catch (const std::exception& e) {
-        std::cerr << "Exception occurred: " << e.what() << std::endl;
-        if (capturedFIR) {
-            NBioAPI_FreeFIRHandle(g_hBSP, capturedFIR);
-        }
         FreeFIR(existingFIR);
-        if (g_hBSP) {
-            NBioAPI_CloseDevice(g_hBSP, deviceID);
-            NBioAPI_Terminate(g_hBSP);
-        }
-        return -1; // Exit with failure
+        FreeFIR(capturedFIRData);
+        NBioAPI_Terminate(g_hBSP);
+        LogResult(false, "fingerprint_verification_log.txt");
+        return 1; // Failure
     }
 }
