@@ -78,7 +78,7 @@ int main() {
     time_t now = time(nullptr);
     char timestamp[20];
     strftime(timestamp, sizeof(timestamp), "%Y%m%d_%H%M%S", localtime(&now));
-    std::string filename = "fingerprint_" + std::string(timestamp) + ".fir";
+    std::string filename = "fingerprint.fir";
 
     std::ofstream outFile(filename, std::ios::binary);
     if (outFile.is_open()) {

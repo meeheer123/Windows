@@ -2,32 +2,76 @@ import tkinter as tk
 from tkinter import messagebox
 import subprocess
 import threading
+import sqlite3
+import os
 
+def initialize_database():
+    """Initialize the SQLite database and create the necessary table."""
+    conn = sqlite3.connect("fingerprint_data.db")
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            prn TEXT PRIMARY KEY,
+            name TEXT,
+            fingerprint_file TEXT,
+            fingerprint_data BLOB
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def save_to_database(prn, name, fingerprint_file):
+    """Save user data and fingerprint file to the SQLite database."""
+    try:
+        # Read the fingerprint file as binary data
+        with open(fingerprint_file, "rb") as file:
+            fingerprint_data = file.read()
+
+        conn = sqlite3.connect("fingerprint_data.db")
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO users (prn, name, fingerprint_data) VALUES (?, ?, ?)",
+            (prn, name, fingerprint_data)
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.IntegrityError:
+        messagebox.showerror("Database Error", "A user with this PRN already exists.")
+    except FileNotFoundError:
+        messagebox.showerror("File Error", f"The fingerprint file '{fingerprint_file}' was not found.")
+    except Exception as e:
+        messagebox.showerror("Database Error", f"An unexpected error occurred: {e}")
 
 def capture_fingerprint(prn, name, status_label):
     """Run the C++ fingerprint capture executable with provided PRN and name."""
     try:
         status_label.config(text="Status: Capturing fingerprint, please wait...")
-        # Example: Pass PRN and name as command-line arguments to the executable
+        fingerprint_file = f"fingerprint.fir"
+        # Example: Pass PRN, name, and the intended output path for the fingerprint file
         result = subprocess.run([
             "fingerprint_app.exe",
             prn,
-            name
+            name,
+            fingerprint_file
         ], capture_output=True, text=True)
 
         if result.returncode == 0:
-            messagebox.showinfo("Success", "Fingerprint captured and saved successfully!")
-            status_label.config(text="Status: Fingerprint captured successfully.")
+            # Check if the file was created
+            if os.path.exists(fingerprint_file):
+                save_to_database(prn, name, fingerprint_file)
+                messagebox.showinfo("Success", "Fingerprint captured and saved successfully!")
+                status_label.config(text="Status: Fingerprint captured successfully.")
+            else:
+                raise FileNotFoundError(f"Expected fingerprint file not found: {fingerprint_file}")
         else:
             messagebox.showerror("Error", f"Error occurred: {result.stderr}")
             status_label.config(text="Status: Error occurred during capture.")
-    except FileNotFoundError:
-        messagebox.showerror("Error", "The fingerprint_app.exe file was not found.")
-        status_label.config(text="Status: Capture file not found.")
+    except FileNotFoundError as e:
+        messagebox.showerror("Error", str(e))
+        status_label.config(text="Status: File not found.")
     except Exception as e:
         messagebox.showerror("Error", f"An unexpected error occurred: {e}")
         status_label.config(text="Status: Unexpected error occurred.")
-
 
 def open_capture_dialog(status_label):
     """Open a dialog to get PRN and name before capturing the fingerprint."""
@@ -67,7 +111,6 @@ def open_capture_dialog(status_label):
     )
     scan_button.pack(pady=10)
 
-
 def verify_fingerprint(status_label):
     """Run the C++ fingerprint verification executable."""
     try:
@@ -86,12 +129,10 @@ def verify_fingerprint(status_label):
         messagebox.showerror("Error", f"An unexpected error occurred: {e}")
         status_label.config(text="Status: Unexpected error occurred.")
 
-
 def start_thread(target, status_label):
     """Start a function in a separate thread."""
     thread = threading.Thread(target=target, args=(status_label,))
     thread.start()
-
 
 def center_window(window, width, height):
     """Center the window on the screen."""
@@ -101,12 +142,14 @@ def center_window(window, width, height):
     y = (screen_height - height) // 2
     window.geometry(f"{width}x{height}+{x}+{y}")
 
-
 # Create the Tkinter GUI
 root = tk.Tk()
 root.title("Fingerprint System")
 center_window(root, 400, 220)
 root.resizable(False, False)
+
+# Initialize database
+initialize_database()
 
 # Styling
 root.configure(bg="#f0f0f5")
