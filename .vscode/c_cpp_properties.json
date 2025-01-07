@@ -1,0 +1,37 @@
+{
+    "configurations": [
+        {
+            "name": "Win32",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "C:/Users/dinne/OneDrive/Documents/Desktop/Biometric/Nitgen Hamster III/SDK/eNBSP SDK_V4.861/eNBSP SDK_V4.861/SDK/NFIQ/Windows/inc" // Path to the NBioBSP SDK headers
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE"
+            ],
+            "compilerPath": "C:/MinGW/bin/gcc.exe", // Fixed path
+            "cStandard": "c11",
+            "cppStandard": "gnu++14",
+            "intelliSenseMode": "windows-gcc-x86"
+        },
+        {
+            "name": "fingerprint",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "C:/Users/dinne/OneDrive/Documents/Desktop/Biometric/Nitgen Hamster III/SDK/eNBSP SDK_V4.861/eNBSP SDK_V4.861/SDK/NFIQ/Windows/inc"
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE"
+            ],
+            "compilerPath": "C:/MinGW/bin/gcc.exe", // Fixed path
+            "cStandard": "c11",
+            "cppStandard": "gnu++14",
+            "intelliSenseMode": "windows-gcc-x86"
+        }
+    ],
+    "version": 4
+}
