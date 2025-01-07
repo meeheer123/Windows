@@ -30,8 +30,8 @@ def save_to_database(prn, name, fingerprint_file):
         conn = sqlite3.connect("fingerprint_data.db")
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO users (prn, name, fingerprint_data) VALUES (?, ?, ?)",
-            (prn, name, fingerprint_data)
+            "INSERT INTO users (prn, name, fingerprint_file, fingerprint_data) VALUES (?, ?, ?, ?)",
+            (prn, name, fingerprint_file, fingerprint_data)
         )
         conn.commit()
         conn.close()
@@ -46,8 +46,7 @@ def capture_fingerprint(prn, name, status_label):
     """Run the C++ fingerprint capture executable with provided PRN and name."""
     try:
         status_label.config(text="Status: Capturing fingerprint, please wait...")
-        fingerprint_file = f"fingerprint.fir"
-        # Example: Pass PRN, name, and the intended output path for the fingerprint file
+        fingerprint_file = f"fingerprint_{prn}.fir"
         result = subprocess.run([
             "fingerprint_app.exe",
             prn,
@@ -56,7 +55,6 @@ def capture_fingerprint(prn, name, status_label):
         ], capture_output=True, text=True)
 
         if result.returncode == 0:
-            # Check if the file was created
             if os.path.exists(fingerprint_file):
                 save_to_database(prn, name, fingerprint_file)
                 messagebox.showinfo("Success", "Fingerprint captured and saved successfully!")
@@ -111,21 +109,79 @@ def open_capture_dialog(status_label):
     )
     scan_button.pack(pady=10)
 
-def verify_fingerprint(status_label):
-    """Run the C++ fingerprint verification executable."""
+def blob_to_fir(blob_data, prn):
+    """Convert BLOB data from the database to a .fir file."""
+    try:
+        filename = f"fingerprint_{prn}.fir"
+        with open(filename, "wb") as f:
+            f.write(blob_data)
+        print(f"Fingerprint data saved as {filename}.")
+    except Exception as e:
+        print(f"Error saving BLOB to FIR file: {e}")
+
+def fir_to_blob(fir_file):
+    """Convert a .fir file to BLOB data."""
+    try:
+        with open(fir_file, "rb") as f:
+            blob_data = f.read()
+        print(f"FIR file {fir_file} converted to BLOB.")
+        return blob_data
+    except Exception as e:
+        print(f"Error reading FIR file: {e}")
+        return None
+
+def verify_fingerprint_in_db(status_label):
+    """Capture a fingerprint and verify it against stored fingerprints in the database."""
     try:
         status_label.config(text="Status: Verifying fingerprint, please wait...")
-        result = subprocess.run(["verify_fingerprint_app.exe"], capture_output=True, text=True)
-        if result.returncode == 0:
-            messagebox.showinfo("Success", "Fingerprint verified successfully!")
-            status_label.config(text="Status: Fingerprint verified successfully.")
-        else:
-            messagebox.showerror("Error", f"Error occurred: {result.stderr}")
-            status_label.config(text="Status: Error occurred during verification.")
-    except FileNotFoundError:
-        messagebox.showerror("Error", "The verify_fingerprint_app.exe file was not found.")
-        status_label.config(text="Status: Verification file not found.")
+        captured_file = "fingerprint.fir"
+
+        print("Running fingerprint capture...")
+        result = subprocess.run([
+            "fingerprint_app.exe", "capture", captured_file
+        ], capture_output=True, text=True)
+
+        print(result)
+
+        if result.returncode != 0:
+            print(f"Error: {result.stderr}")
+            raise FileNotFoundError("Failed to capture fingerprint.")
+
+        if not os.path.exists(captured_file):
+            print(f"Captured file not found: {captured_file}")
+            raise FileNotFoundError(f"Failed to capture fingerprint, file not found: {captured_file}")
+
+        # Read the captured fingerprint as binary data
+        with open(captured_file, "rb") as file:
+            captured_data = file.read()
+
+        conn = sqlite3.connect("fingerprint_data.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT prn, name, fingerprint_data FROM users")
+        users = cursor.fetchall()
+
+        for user in users:
+            stored_prn, stored_name, stored_fingerprint_data = user
+            # Convert the stored BLOB to a FIR file for comparison
+            blob_to_fir(stored_fingerprint_data, stored_prn)
+
+            # Compare captured fingerprint with stored fingerprint
+            if captured_data == stored_fingerprint_data:
+                messagebox.showinfo("Verification Success", f"Fingerprint verified successfully for {stored_name} ({stored_prn}).")
+                status_label.config(text="Status: Fingerprint verified successfully.")
+                conn.close()
+                return
+
+        messagebox.showerror("Verification Failed", "No matching fingerprint found in the database.")
+        status_label.config(text="Status: No matching fingerprint found.")
+        conn.close()
+
+    except FileNotFoundError as e:
+        print(f"Error: {str(e)}")
+        messagebox.showerror("Error", str(e))
+        status_label.config(text="Status: Capture or stored file not found.")
     except Exception as e:
+        print(f"Unexpected error: {e}")
         messagebox.showerror("Error", f"An unexpected error occurred: {e}")
         status_label.config(text="Status: Unexpected error occurred.")
 
@@ -151,7 +207,6 @@ root.resizable(False, False)
 # Initialize database
 initialize_database()
 
-# Styling
 root.configure(bg="#f0f0f5")
 
 header = tk.Label(root, text="Fingerprint Capture System", font=("Arial", 16, "bold"), bg="#f0f0f5", fg="#333")
@@ -180,7 +235,7 @@ capture_button.grid(row=0, column=0, padx=10, pady=10)
 verify_button = tk.Button(
     button_frame,
     text="Verify Fingerprint",
-    command=lambda: start_thread(verify_fingerprint, status_label),
+    command=lambda: start_thread(verify_fingerprint_in_db, status_label),
     font=("Arial", 12),
     bg="#2196f3",
     fg="white",
