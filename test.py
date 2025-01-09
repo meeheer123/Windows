@@ -7,7 +7,8 @@ from datetime import datetime
 import sqlite3
 import os
 import json
-
+from tkinter import filedialog
+import csv
 
 def initialize_database():
     """Initialize the SQLite database and create the necessary table."""
@@ -210,20 +211,127 @@ def verify_fingerprint_in_db(status_label):
 
 def show_attendance_dialog():
     """Open a dialog to input start and end dates for filtering attendance."""
+    from tkcalendar import DateEntry
+    from datetime import datetime
+    
+    def export_to_csv(records):
+        """Export the attendance records to a CSV file."""
+        try:
+            file_path = tk.filedialog.asksaveasfilename(
+                defaultextension='.csv',
+                filetypes=[("CSV files", '*.csv')],
+                title="Export Attendance Records"
+            )
+            
+            if file_path:
+                with open(file_path, 'w', newline='') as file:
+                    writer = csv.writer(file)
+                    writer.writerow(["PRN", "Name", "Timestamp"])  # Header
+                    writer.writerows(records)
+                messagebox.showinfo("Success", "Records exported successfully!")
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to export records: {str(e)}")
+
+    def display_records(records):
+        """Display attendance records in a new window with sorting and export capabilities."""
+        records_window = tk.Toplevel()
+        records_window.title("Attendance Records")
+        records_window.state('zoomed')
+
+        # Create main container
+        main_frame = ttk.Frame(records_window, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Header frame
+        header_frame = ttk.Frame(main_frame)
+        header_frame.pack(fill=tk.X, pady=(0, 20))
+
+        # Title
+        title_label = ttk.Label(
+            header_frame,
+            text=f"Attendance Records ({len(records)} entries found)",
+            font=("Arial", 16, "bold")
+        )
+        title_label.pack(side=tk.LEFT)
+
+        # Export button
+        export_button = ttk.Button(
+            header_frame,
+            text="Export to CSV",
+            command=lambda: export_to_csv(records),
+            style="Action.TButton",
+            padding=10
+        )
+        export_button.pack(side=tk.RIGHT)
+
+        # Create tree view with scrollbars
+        tree_frame = ttk.Frame(main_frame)
+        tree_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Scrollbars
+        y_scrollbar = ttk.Scrollbar(tree_frame)
+        y_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        x_scrollbar = ttk.Scrollbar(tree_frame, orient='horizontal')
+        x_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+
+        # Treeview
+        columns = ("PRN", "Name", "Timestamp")
+        tree = ttk.Treeview(
+            tree_frame,
+            columns=columns,
+            show="headings",
+            yscrollcommand=y_scrollbar.set,
+            xscrollcommand=x_scrollbar.set
+        )
+
+        # Configure scrollbars
+        y_scrollbar.config(command=tree.yview)
+        x_scrollbar.config(command=tree.xview)
+
+        # Configure column headings
+        for col in columns:
+            tree.heading(col, text=col, command=lambda c=col: sort_treeview(tree, c, False))
+            tree.column(col, minwidth=100, width=200)
+
+        # Insert records
+        for record in records:
+            tree.insert("", tk.END, values=record)
+
+        tree.pack(fill=tk.BOTH, expand=True)
+
+        # Sorting function
+        def sort_treeview(tree, col, reverse):
+            """Sort treeview by column."""
+            l = [(tree.set(k, col), k) for k in tree.get_children('')]
+            l.sort(reverse=reverse)
+
+            # Rearrange items in sorted positions
+            for index, (val, k) in enumerate(l):
+                tree.move(k, '', index)
+
+            # Reverse sort next time
+            tree.heading(col, command=lambda: sort_treeview(tree, col, not reverse))
+
     def fetch_attendance():
         """Fetch and display attendance records based on the date and time range."""
         try:
-            start_datetime = start_date_entry.get().strip()
-            end_datetime = end_date_entry.get().strip()
-
-            if not start_datetime or not end_datetime:
-                messagebox.showwarning("Input Error", "Please enter both start and end date-time.")
-                return
-
-            # Convert input to datetime objects for validation
+            # Get the date from calendar widgets
+            start_date = start_date_cal.get_date()
+            end_date = end_date_cal.get_date()
+            
+            # Get time from spinboxes
+            start_time = f"{start_hour.get()}:{start_minute.get()}:{start_second.get()}"
+            end_time = f"{end_hour.get()}:{end_minute.get()}:{end_second.get()}"
+            
+            # Combine date and time
+            start_datetime = f"{start_date.strftime('%Y-%m-%d')} {start_time}"
+            end_datetime = f"{end_date.strftime('%Y-%m-%d')} {end_time}"
+            
+            # Convert to datetime objects for validation
             start_datetime_obj = datetime.strptime(start_datetime, "%Y-%m-%d %H:%M:%S")
             end_datetime_obj = datetime.strptime(end_datetime, "%Y-%m-%d %H:%M:%S")
-
+            
             if start_datetime_obj > end_datetime_obj:
                 messagebox.showerror("Date-Time Error", "Start date-time must be before or equal to end date-time.")
                 return
@@ -235,7 +343,6 @@ def show_attendance_dialog():
             conn.close()
 
             records = []
-
             for user in users:
                 prn, name, timestamps_json = user
                 timestamps = json.loads(timestamps_json)
@@ -248,65 +355,121 @@ def show_attendance_dialog():
                 display_records(records)
             else:
                 messagebox.showinfo("No Records", "No attendance records found for the specified date-time range.")
-        except ValueError as ve:
-            messagebox.showerror("Input Error", "Please enter date-time in YYYY-MM-DD HH:MM:SS format.")
+                
         except Exception as e:
             messagebox.showerror("Error", f"An unexpected error occurred: {e}")
 
-    def display_records(records):
-        """Display attendance records in a new window."""
-        records_window = tk.Toplevel()
-        records_window.title("Attendance Records")
-        records_window.state('zoomed')  # Make the window fullscreen
-
-        columns = ("PRN", "Name", "Timestamp")
-
-        tree = ttk.Treeview(records_window, columns=columns, show="headings")
-        tree.heading("PRN", text="PRN")
-        tree.heading("Name", text="Name")
-        tree.heading("Timestamp", text="Timestamp")
-
-        for record in records:
-            tree.insert("", tk.END, values=record)
-
-        tree.pack(fill=tk.BOTH, expand=True)
-
     dialog = tk.Toplevel()
     dialog.title("View Attendance")
-    dialog.state('zoomed')  # Make the dialog fullscreen
-
-    # Create a parent frame to center the content
-    parent_frame = tk.Frame(dialog)
-    parent_frame.pack(expand=True, fill=tk.BOTH)
-
-    # Center the content vertically and horizontally
-    content_frame = tk.Frame(parent_frame)
-    content_frame.pack(expand=True)
-
-    tk.Label(content_frame, text="Start Date-Time (YYYY-MM-DD HH:MM:SS):", font=("Arial", 14)).pack(pady=10)
-    start_date_entry = tk.Entry(content_frame, font=("Arial", 14), width=40)
-    start_date_entry.pack(pady=10)
-
-    tk.Label(content_frame, text="End Date-Time (YYYY-MM-DD HH:MM:SS):", font=("Arial", 14)).pack(pady=10)
-    end_date_entry = tk.Entry(content_frame, font=("Arial", 14), width=40)
-    end_date_entry.pack(pady=10)
-
-    fetch_button = tk.Button(
-        content_frame,
-        text="Fetch Records",
-        command=fetch_attendance,
-        font=("Arial", 14),
-        bg="#2196f3",
-        fg="white",
-        activebackground="#1e88e5",
-        activeforeground="white",
+    dialog.geometry("800x600")
+    
+    # Main container with padding
+    main_frame = ttk.Frame(dialog, padding="20")
+    main_frame.pack(fill=tk.BOTH, expand=True)
+    
+    # Title
+    title_label = ttk.Label(
+        main_frame, 
+        text="Attendance Record Search", 
+        font=("Arial", 20, "bold")
+    )
+    title_label.pack(pady=(0, 20))
+    
+    # Create frames for start and end date-time
+    start_frame = ttk.LabelFrame(main_frame, text="Start Date and Time", padding="10")
+    start_frame.pack(fill=tk.X, padx=20, pady=10)
+    
+    end_frame = ttk.LabelFrame(main_frame, text="End Date and Time", padding="10")
+    end_frame.pack(fill=tk.X, padx=20, pady=10)
+    
+    # Start date-time widgets
+    ttk.Label(start_frame, text="Date:").grid(row=0, column=0, padx=5, pady=5)
+    start_date_cal = DateEntry(
+        start_frame,
         width=20,
-        height=2
+        background='darkblue',
+        foreground='white',
+        borderwidth=2,
+        date_pattern='yyyy-mm-dd'
+    )
+    start_date_cal.grid(row=0, column=1, padx=5, pady=5)
+    
+    ttk.Label(start_frame, text="Time:").grid(row=0, column=2, padx=5, pady=5)
+    
+    # Time spinboxes for start
+    time_frame_start = ttk.Frame(start_frame)
+    time_frame_start.grid(row=0, column=3, padx=5, pady=5)
+    
+    start_hour = ttk.Spinbox(time_frame_start, from_=0, to=23, width=3, format="%02.0f")
+    start_hour.set("00")
+    start_hour.pack(side=tk.LEFT)
+    
+    ttk.Label(time_frame_start, text=":").pack(side=tk.LEFT)
+    
+    start_minute = ttk.Spinbox(time_frame_start, from_=0, to=59, width=3, format="%02.0f")
+    start_minute.set("00")
+    start_minute.pack(side=tk.LEFT)
+    
+    ttk.Label(time_frame_start, text=":").pack(side=tk.LEFT)
+    
+    start_second = ttk.Spinbox(time_frame_start, from_=0, to=59, width=3, format="%02.0f")
+    start_second.set("00")
+    start_second.pack(side=tk.LEFT)
+    
+    # End date-time widgets
+    ttk.Label(end_frame, text="Date:").grid(row=0, column=0, padx=5, pady=5)
+    end_date_cal = DateEntry(
+        end_frame,
+        width=20,
+        background='darkblue',
+        foreground='white',
+        borderwidth=2,
+        date_pattern='yyyy-mm-dd'
+    )
+    end_date_cal.grid(row=0, column=1, padx=5, pady=5)
+    
+    ttk.Label(end_frame, text="Time:").grid(row=0, column=2, padx=5, pady=5)
+    
+    # Time spinboxes for end
+    time_frame_end = ttk.Frame(end_frame)
+    time_frame_end.grid(row=0, column=3, padx=5, pady=5)
+    
+    end_hour = ttk.Spinbox(time_frame_end, from_=0, to=23, width=3, format="%02.0f")
+    end_hour.set("23")
+    end_hour.pack(side=tk.LEFT)
+    
+    ttk.Label(time_frame_end, text=":").pack(side=tk.LEFT)
+    
+    end_minute = ttk.Spinbox(time_frame_end, from_=0, to=59, width=3, format="%02.0f")
+    end_minute.set("59")
+    end_minute.pack(side=tk.LEFT)
+    
+    ttk.Label(time_frame_end, text=":").pack(side=tk.LEFT)
+    
+    end_second = ttk.Spinbox(time_frame_end, from_=0, to=59, width=3, format="%02.0f")
+    end_second.set("59")
+    end_second.pack(side=tk.LEFT)
+    
+    # Fetch button
+    fetch_button = ttk.Button(
+        main_frame,
+        text="Search Records",
+        command=fetch_attendance,
+        style="Accent.TButton",
+        padding=10
     )
     fetch_button.pack(pady=20)
-
-    # attendance_text = tk.Text(dialog, font=("Arial", 14), wrap=tk.WORD, width=80, height=20)
-    # attendance_text.pack(pady=20)
+    
+    # Create custom style for the button
+    style = ttk.Style()
+    style.configure(
+        "Accent.TButton",
+        font=("Arial", 12)
+    )
+    style.configure(
+        "Action.TButton",
+        font=("Arial", 11)
+    )
 
 def main():
     initialize_database()
