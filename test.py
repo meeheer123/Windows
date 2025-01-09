@@ -9,6 +9,7 @@ import os
 import json
 from tkinter import filedialog
 import csv
+from PIL import Image, ImageTk
 
 def initialize_database():
     """Initialize the SQLite database and create the necessary table."""
@@ -150,6 +151,41 @@ def check_admin(status_label):
     except Exception as e:
         messagebox.showerror("Error", f"An error occurred during verification: {str(e)}")
         status_label.config(text="Status: Verification error occurred.")
+        
+def set_background(root, image_path):
+    """
+    Set a background image to the tkinter root window.
+
+    Args:
+        root: The tkinter root window.
+        image_path: Path to the image file.
+    """
+    # Load the image with Pillow
+    image = Image.open(image_path)
+    image = image.resize((root.winfo_screenwidth(), root.winfo_screenheight()), Image.Resampling.LANCZOS)
+
+    # Apply transparency (opacity)
+    image = image.convert("RGBA")
+    alpha = int(0.3 * 255)  # Convert opacity to alpha (0-255 scale)
+    for x in range(image.width):
+        for y in range(image.height):
+            r, g, b, a = image.getpixel((x, y))
+            image.putpixel((x, y), (r, g, b, alpha))
+
+    # Convert the processed image to ImageTk format
+    background_image = ImageTk.PhotoImage(image)
+
+    # Create a canvas to display the image
+    canvas = tk.Canvas(root, width=root.winfo_screenwidth(), height=root.winfo_screenheight())
+    canvas.pack(fill=tk.BOTH, expand=True)
+
+    # Add the background image to the canvas
+    canvas.create_image(0, 0, image=background_image, anchor=tk.NW)
+
+    # Place all other widgets on top of the canvas
+    canvas.image = background_image  # Keep a reference to avoid garbage collection
+    return canvas
+
         
 def verify_fingerprint_in_db(status_label):
     """Capture a fingerprint and verify it against stored fingerprints in the database."""
@@ -500,68 +536,65 @@ def show_attendance_dialog():
 def main():
     initialize_database()
 
-root = tk.Tk()
-root.title("Fingerprint Scanner")
-root.state('zoomed')  # Make the main window fullscreen
+    root = tk.Tk()
+    root.title("Fingerprint Scanner")
+    root.state('zoomed')  # Make the main window fullscreen
 
-# Parent frame to center content
-parent_frame = tk.Frame(root)
-parent_frame.pack(expand=True, fill=tk.BOTH)
+    # Set the background image
+    canvas = set_background(root, "logo.png")
 
-# Content frame for actual widgets
-content_frame = ttk.Frame(parent_frame, padding="30 30 30 30")
-content_frame.pack(expand=True)
+    # Add widgets to the canvas
+    content_frame = ttk.Frame(canvas, padding="30 30 30 30")
+    canvas.create_window(root.winfo_screenwidth() // 2, root.winfo_screenheight() // 2, window=content_frame, anchor=tk.CENTER)
 
-title_label = tk.Label(content_frame, text="Fingerprint Scanner", font=("Arial", 24, "bold"))
-title_label.grid(row=0, column=0, columnspan=2, pady=20)
+    title_label = tk.Label(content_frame, text="Fingerprint Scanner", font=("Arial", 24, "bold"))
+    title_label.grid(row=0, column=0, columnspan=2, pady=20)
 
-status_label = tk.Label(content_frame, text="Status: Idle", font=("Arial", 16))
-status_label.grid(row=1, column=0, columnspan=2, pady=20)
+    status_label = tk.Label(content_frame, text="Status: Idle", font=("Arial", 16))
+    status_label.grid(row=1, column=0, columnspan=2, pady=20)
 
-capture_button = tk.Button(
-    content_frame,
-    text="Capture Fingerprint",
-    command=lambda: open_capture_dialog(status_label),
-    font=("Arial", 16),
-    bg="#4caf50",
-    fg="white",
-    activebackground="#45a049",
-    activeforeground="white",
-    width=30,
-    height=2
-)
-capture_button.grid(row=2, column=0,padx=10, pady=20)
+    capture_button = tk.Button(
+        content_frame,
+        text="Capture Fingerprint",
+        command=lambda: open_capture_dialog(status_label),
+        font=("Arial", 16),
+        bg="#4caf50",
+        fg="white",
+        activebackground="#45a049",
+        activeforeground="white",
+        width=30,
+        height=2
+    )
+    capture_button.grid(row=2, column=0, padx=10, pady=20)
 
-verify_button = tk.Button(
-    content_frame,
-    text="Mark Attendance",
-    command=lambda: threading.Thread(target=verify_fingerprint_in_db, args=(status_label,)).start(),
-    font=("Arial", 16),
-    bg="#1395bd",
-    fg="white",
-    activebackground="#45a049",
-    activeforeground="white",
-    width=30,
-    height=2
-)
-verify_button.grid(row=2, column=1,padx=10, pady=20)
+    verify_button = tk.Button(
+        content_frame,
+        text="Mark Attendance",
+        command=lambda: threading.Thread(target=verify_fingerprint_in_db, args=(status_label,)).start(),
+        font=("Arial", 16),
+        bg="#2196f3",
+        fg="white",
+        activebackground="#1e88e5",
+        activeforeground="white",
+        width=30,
+        height=2
+    )
+    verify_button.grid(row=3, column=0, padx=10, pady=20)
 
-attendance_button = tk.Button(
-    content_frame,
-    text="View Attendance",
-    command=lambda: threading.Thread(target=check_admin, args=(status_label,)).start(),
-    font=("Arial", 16),
-    bg="#4caf50",
-    fg="white",
-    activebackground="#45a049",
-    activeforeground="white",
-    width=30,
-    height=2
-)
-attendance_button.grid(row=3, column=0, columnspan=2, pady=20)
+    view_button = tk.Button(
+        content_frame,
+        text="View Attendance",
+        command=lambda: check_admin(status_label),
+        font=("Arial", 16),
+        bg="#ff9800",
+        fg="white",
+        activebackground="#fb8c00",
+        activeforeground="white",
+        width=30,
+        height=2
+    )
+    view_button.grid(row=4, column=0, padx=10, pady=20)
 
+    root.mainloop()
 
-root.mainloop()
-
-if __name__ == "__main__":
-    main()
+main()
