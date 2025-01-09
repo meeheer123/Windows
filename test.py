@@ -20,7 +20,8 @@ def initialize_database():
             name TEXT,
             fingerprint_file TEXT,
             fingerprint_data BLOB,
-            verification_timestamps TEXT DEFAULT '[]'
+            verification_timestamps TEXT DEFAULT '[]',
+            isadmin INTEGER
         )
     ''')
     conn.commit()
@@ -36,7 +37,7 @@ def save_to_database(prn, name, fingerprint_file):
         conn = sqlite3.connect("fingerprint_data.db")
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO users (prn, name, fingerprint_file, fingerprint_data) VALUES (?, ?, ?, ?)",
+            "INSERT INTO users (prn, name, fingerprint_file, fingerprint_data, isadmin) VALUES (?, ?, ?, ?, 0)",
             (prn.upper(), name, fingerprint_file, fingerprint_data)
         )
         conn.commit()
@@ -129,6 +130,27 @@ def open_capture_dialog(status_label):
     )
     scan_button.pack(pady=20)
 
+def check_admin(status_label):
+    """
+    Verify fingerprint and check if the user has admin privileges.
+    If admin, show attendance dialog; if not, show appropriate message.
+    
+    Args:
+        status_label: tkinter Label widget for displaying status messages
+    """
+    try:
+        status_label.config(text="Status: Verifying fingerprint, please wait...")
+        isadmin = verify_fingerprint_in_db(status_label)
+        
+        if isadmin:
+            show_attendance_dialog()
+        else:
+            messagebox.showinfo("Access Denied", "You need administrator privileges to view attendance records.")
+            
+    except Exception as e:
+        messagebox.showerror("Error", f"An error occurred during verification: {str(e)}")
+        status_label.config(text="Status: Verification error occurred.")
+        
 def verify_fingerprint_in_db(status_label):
     """Capture a fingerprint and verify it against stored fingerprints in the database."""
     try:
@@ -154,13 +176,14 @@ def verify_fingerprint_in_db(status_label):
 
         conn = sqlite3.connect("fingerprint_data.db")
         cursor = conn.cursor()
-        cursor.execute("SELECT prn, name, fingerprint_data, verification_timestamps FROM users")
+        cursor.execute("SELECT prn, name, fingerprint_data, verification_timestamps, isadmin FROM users")
         users = cursor.fetchall()
 
         match_found = False
+        isadmin = False
 
         for user in users:
-            stored_prn, stored_name, stored_fingerprint_data, timestamps_json = user
+            stored_prn, stored_name, stored_fingerprint_data, timestamps_json, stored_admin_status = user
             timestamps = json.loads(timestamps_json) if timestamps_json else []
 
             # Convert the stored BLOB to a FIR file for comparison
@@ -189,6 +212,9 @@ def verify_fingerprint_in_db(status_label):
                 messagebox.showinfo("Verification Success", f"Fingerprint for {stored_name} (PRN: {stored_prn}) matched!")
                 status_label.config(text=f"Status: Fingerprint matched for PRN: {stored_prn}.")
                 match_found = True
+                if stored_admin_status == 1:
+                    isadmin = True
+                    return True
                 break  # Exit the loop when a match is found
             else:
                 print(f"Error during verification: {verify_result.stderr}")
@@ -508,10 +534,10 @@ capture_button.grid(row=2, column=0,padx=10, pady=20)
 
 verify_button = tk.Button(
     content_frame,
-    text="Verify Fingerprint",
+    text="Mark Attendance",
     command=lambda: threading.Thread(target=verify_fingerprint_in_db, args=(status_label,)).start(),
     font=("Arial", 16),
-    bg="#4caf50",
+    bg="#1395bd",
     fg="white",
     activebackground="#45a049",
     activeforeground="white",
@@ -523,7 +549,7 @@ verify_button.grid(row=2, column=1,padx=10, pady=20)
 attendance_button = tk.Button(
     content_frame,
     text="View Attendance",
-    command=show_attendance_dialog,
+    command=lambda: threading.Thread(target=check_admin, args=(status_label,)).start(),
     font=("Arial", 16),
     bg="#4caf50",
     fg="white",
