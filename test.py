@@ -1,11 +1,13 @@
 import tkinter as tk
 from tkinter import messagebox
+from tkinter import ttk
 import subprocess
 import threading
-import datetime
+from datetime import datetime
 import sqlite3
 import os
 import json
+
 
 def initialize_database():
     """Initialize the SQLite database and create the necessary table."""
@@ -85,16 +87,23 @@ def open_capture_dialog(status_label):
     """Open a dialog to get PRN and name before capturing the fingerprint."""
     dialog = tk.Toplevel()
     dialog.title("Capture Fingerprint")
-    dialog.geometry("300x200")
-    dialog.resizable(False, False)
+    dialog.state('zoomed')  # Make the dialog fullscreen
 
-    tk.Label(dialog, text="Enter PRN:", font=("Arial", 12)).pack(pady=5)
-    prn_entry = tk.Entry(dialog, font=("Arial", 12))
-    prn_entry.pack(pady=5)
+    # Create a parent frame to center the content
+    parent_frame = tk.Frame(dialog)
+    parent_frame.pack(expand=True, fill=tk.BOTH)
 
-    tk.Label(dialog, text="Enter Name:", font=("Arial", 12)).pack(pady=5)
-    name_entry = tk.Entry(dialog, font=("Arial", 12))
-    name_entry.pack(pady=5)
+    # Center the content vertically and horizontally
+    content_frame = tk.Frame(parent_frame)
+    content_frame.pack(expand=True)
+
+    tk.Label(content_frame, text="Enter PRN:", font=("Arial", 16)).pack(pady=10)
+    prn_entry = tk.Entry(content_frame, font=("Arial", 16), width=40)
+    prn_entry.pack(pady=10)
+
+    tk.Label(content_frame, text="Enter Name:", font=("Arial", 16)).pack(pady=10)
+    name_entry = tk.Entry(content_frame, font=("Arial", 16), width=40)
+    name_entry.pack(pady=10)
 
     def on_scan():
         prn = prn_entry.get().strip()
@@ -106,39 +115,18 @@ def open_capture_dialog(status_label):
         threading.Thread(target=capture_fingerprint, args=(prn, name, status_label)).start()
 
     scan_button = tk.Button(
-        dialog,
+        content_frame,
         text="Scan",
         command=on_scan,
-        font=("Arial", 12),
+        font=("Arial", 16),
         bg="#4caf50",
         fg="white",
         activebackground="#45a049",
         activeforeground="white",
-        width=10,
-        height=1
+        width=20,
+        height=2
     )
-    scan_button.pack(pady=10)
-
-def blob_to_fir(blob_data, prn):
-    """Convert BLOB data from the database to a .fir file."""
-    try:
-        filename = f"dataFingerprint.fir"
-        with open(filename, "wb") as f:
-            f.write(blob_data)
-        print(f"Fingerprint data saved as {filename}.")
-    except Exception as e:
-        print(f"Error saving BLOB to FIR file: {e}")
-
-def fir_to_blob(fir_file):
-    """Convert a .fir file to BLOB data."""
-    try:
-        with open(fir_file, "rb") as f:
-            blob_data = f.read()
-        print(f"FIR file {fir_file} converted to BLOB.")
-        return blob_data
-    except Exception as e:
-        print(f"Error reading FIR file: {e}")
-        return None
+    scan_button.pack(pady=20)
 
 def verify_fingerprint_in_db(status_label):
     """Capture a fingerprint and verify it against stored fingerprints in the database."""
@@ -176,7 +164,8 @@ def verify_fingerprint_in_db(status_label):
 
             # Convert the stored BLOB to a FIR file for comparison
             stored_fingerprint_file = f"dataFingerprint.fir"
-            blob_to_fir(stored_fingerprint_data, stored_prn)
+            with open(stored_fingerprint_file, "wb") as f:
+                f.write(stored_fingerprint_data)
 
             # Call verify.exe to compare the two FIR files
             print(f"Comparing captured fingerprint with stored fingerprint for {stored_name}...")
@@ -187,7 +176,7 @@ def verify_fingerprint_in_db(status_label):
 
             if verify_result.returncode == 0:
                 # Append the current timestamp to the verification timestamps
-                current_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                current_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 timestamps.append(current_timestamp)
 
                 # Update the timestamps in the database
@@ -196,7 +185,6 @@ def verify_fingerprint_in_db(status_label):
                     (json.dumps(timestamps), stored_prn)
                 )
                 conn.commit()
-
                 messagebox.showinfo("Verification Success", f"Fingerprint for {stored_name} (PRN: {stored_prn}) matched!")
                 status_label.config(text=f"Status: Fingerprint matched for PRN: {stored_prn}.")
                 match_found = True
@@ -220,65 +208,171 @@ def verify_fingerprint_in_db(status_label):
         messagebox.showerror("Error", f"An unexpected error occurred: {e}")
         status_label.config(text="Status: Unexpected error occurred.")
 
-def start_thread(target, status_label):
-    """Start a function in a separate thread."""
-    thread = threading.Thread(target=target, args=(status_label,))
-    thread.start()
+def show_attendance_dialog():
+    """Open a dialog to input start and end dates for filtering attendance."""
+    def fetch_attendance():
+        """Fetch and display attendance records based on the date and time range."""
+        try:
+            start_datetime = start_date_entry.get().strip()
+            end_datetime = end_date_entry.get().strip()
 
-def center_window(window, width, height):
-    """Center the window on the screen."""
-    screen_width = window.winfo_screenwidth()
-    screen_height = window.winfo_screenheight()
-    x = (screen_width - width) // 2
-    y = (screen_height - height) // 2
-    window.geometry(f"{width}x{height}+{x}+{y}")
+            if not start_datetime or not end_datetime:
+                messagebox.showwarning("Input Error", "Please enter both start and end date-time.")
+                return
 
-# Create the Tkinter GUI
+            # Convert input to datetime objects for validation
+            start_datetime_obj = datetime.strptime(start_datetime, "%Y-%m-%d %H:%M:%S")
+            end_datetime_obj = datetime.strptime(end_datetime, "%Y-%m-%d %H:%M:%S")
+
+            if start_datetime_obj > end_datetime_obj:
+                messagebox.showerror("Date-Time Error", "Start date-time must be before or equal to end date-time.")
+                return
+
+            conn = sqlite3.connect("fingerprint_data.db")
+            cursor = conn.cursor()
+            cursor.execute("SELECT prn, name, verification_timestamps FROM users")
+            users = cursor.fetchall()
+            conn.close()
+
+            records = []
+
+            for user in users:
+                prn, name, timestamps_json = user
+                timestamps = json.loads(timestamps_json)
+                for ts in timestamps:
+                    ts_datetime = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+                    if start_datetime_obj <= ts_datetime <= end_datetime_obj:
+                        records.append((prn, name, ts))
+
+            if records:
+                display_records(records)
+            else:
+                messagebox.showinfo("No Records", "No attendance records found for the specified date-time range.")
+        except ValueError as ve:
+            messagebox.showerror("Input Error", "Please enter date-time in YYYY-MM-DD HH:MM:SS format.")
+        except Exception as e:
+            messagebox.showerror("Error", f"An unexpected error occurred: {e}")
+
+    def display_records(records):
+        """Display attendance records in a new window."""
+        records_window = tk.Toplevel()
+        records_window.title("Attendance Records")
+        records_window.state('zoomed')  # Make the window fullscreen
+
+        columns = ("PRN", "Name", "Timestamp")
+
+        tree = ttk.Treeview(records_window, columns=columns, show="headings")
+        tree.heading("PRN", text="PRN")
+        tree.heading("Name", text="Name")
+        tree.heading("Timestamp", text="Timestamp")
+
+        for record in records:
+            tree.insert("", tk.END, values=record)
+
+        tree.pack(fill=tk.BOTH, expand=True)
+
+    dialog = tk.Toplevel()
+    dialog.title("View Attendance")
+    dialog.state('zoomed')  # Make the dialog fullscreen
+
+    # Create a parent frame to center the content
+    parent_frame = tk.Frame(dialog)
+    parent_frame.pack(expand=True, fill=tk.BOTH)
+
+    # Center the content vertically and horizontally
+    content_frame = tk.Frame(parent_frame)
+    content_frame.pack(expand=True)
+
+    tk.Label(content_frame, text="Start Date-Time (YYYY-MM-DD HH:MM:SS):", font=("Arial", 14)).pack(pady=10)
+    start_date_entry = tk.Entry(content_frame, font=("Arial", 14), width=40)
+    start_date_entry.pack(pady=10)
+
+    tk.Label(content_frame, text="End Date-Time (YYYY-MM-DD HH:MM:SS):", font=("Arial", 14)).pack(pady=10)
+    end_date_entry = tk.Entry(content_frame, font=("Arial", 14), width=40)
+    end_date_entry.pack(pady=10)
+
+    fetch_button = tk.Button(
+        content_frame,
+        text="Fetch Records",
+        command=fetch_attendance,
+        font=("Arial", 14),
+        bg="#2196f3",
+        fg="white",
+        activebackground="#1e88e5",
+        activeforeground="white",
+        width=20,
+        height=2
+    )
+    fetch_button.pack(pady=20)
+
+    # attendance_text = tk.Text(dialog, font=("Arial", 14), wrap=tk.WORD, width=80, height=20)
+    # attendance_text.pack(pady=20)
+
+def main():
+    initialize_database()
+
 root = tk.Tk()
-root.title("Fingerprint System")
-center_window(root, 400, 220)
-root.resizable(False, False)
+root.title("Fingerprint Scanner")
+root.state('zoomed')  # Make the main window fullscreen
 
-# Initialize database
-initialize_database()
+# Parent frame to center content
+parent_frame = tk.Frame(root)
+parent_frame.pack(expand=True, fill=tk.BOTH)
 
-root.configure(bg="#f0f0f5")
+# Content frame for actual widgets
+content_frame = ttk.Frame(parent_frame, padding="30 30 30 30")
+content_frame.pack(expand=True)
 
-header = tk.Label(root, text="Fingerprint Capture System", font=("Arial", 16, "bold"), bg="#f0f0f5", fg="#333")
-header.pack(pady=10)
+title_label = tk.Label(content_frame, text="Fingerprint Scanner", font=("Arial", 24, "bold"))
+title_label.grid(row=0, column=0, columnspan=2, pady=20)
 
-status_label = tk.Label(root, text="Status: Ready", font=("Arial", 10), bg="#f0f0f5", fg="#555")
-status_label.pack(pady=5)
-
-button_frame = tk.Frame(root, bg="#f0f0f5")
-button_frame.pack(pady=20)
+status_label = tk.Label(content_frame, text="Status: Idle", font=("Arial", 16))
+status_label.grid(row=1, column=0, columnspan=2, pady=20)
 
 capture_button = tk.Button(
-    button_frame,
+    content_frame,
     text="Capture Fingerprint",
     command=lambda: open_capture_dialog(status_label),
-    font=("Arial", 12),
+    font=("Arial", 16),
     bg="#4caf50",
     fg="white",
     activebackground="#45a049",
     activeforeground="white",
-    width=18,
-    height=1
+    width=30,
+    height=2
 )
-capture_button.grid(row=0, column=0, padx=10, pady=10)
+capture_button.grid(row=2, column=0,padx=10, pady=20)
 
 verify_button = tk.Button(
-    button_frame,
+    content_frame,
     text="Verify Fingerprint",
-    command=lambda: start_thread(verify_fingerprint_in_db, status_label),
-    font=("Arial", 12),
-    bg="#2196f3",
+    command=lambda: threading.Thread(target=verify_fingerprint_in_db, args=(status_label,)).start(),
+    font=("Arial", 16),
+    bg="#4caf50",
     fg="white",
-    activebackground="#1e88e5",
+    activebackground="#45a049",
     activeforeground="white",
-    width=18,
-    height=1
+    width=30,
+    height=2
 )
-verify_button.grid(row=0, column=1, padx=10, pady=10)
+verify_button.grid(row=2, column=1,padx=10, pady=20)
+
+attendance_button = tk.Button(
+    content_frame,
+    text="View Attendance",
+    command=show_attendance_dialog,
+    font=("Arial", 16),
+    bg="#4caf50",
+    fg="white",
+    activebackground="#45a049",
+    activeforeground="white",
+    width=30,
+    height=2
+)
+attendance_button.grid(row=3, column=0, columnspan=2, pady=20)
+
 
 root.mainloop()
+
+if __name__ == "__main__":
+    main()
