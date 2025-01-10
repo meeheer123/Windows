@@ -154,7 +154,7 @@ def check_admin(status_label):
         
 def set_background(root, image_path):
     """
-    Set a background image to the tkinter root window.
+    Set a background image to the tkinter root window, maintaining aspect ratio.
 
     Args:
         root: The tkinter root window.
@@ -162,7 +162,19 @@ def set_background(root, image_path):
     """
     # Load the image with Pillow
     image = Image.open(image_path)
-    image = image.resize((root.winfo_screenwidth(), root.winfo_screenheight()), Image.Resampling.LANCZOS)
+
+    # Get the screen dimensions
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+
+    # Calculate the scale to fit the screen while maintaining the aspect ratio
+    img_width, img_height = image.size
+    scale = min(screen_width / img_width, screen_height / img_height)
+    new_width = int(img_width * scale)
+    new_height = int(img_height * scale)
+
+    # Resize the image
+    image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
 
     # Apply transparency (opacity)
     image = image.convert("RGBA")
@@ -176,11 +188,13 @@ def set_background(root, image_path):
     background_image = ImageTk.PhotoImage(image)
 
     # Create a canvas to display the image
-    canvas = tk.Canvas(root, width=root.winfo_screenwidth(), height=root.winfo_screenheight())
+    canvas = tk.Canvas(root, width=screen_width, height=screen_height)
     canvas.pack(fill=tk.BOTH, expand=True)
 
-    # Add the background image to the canvas
-    canvas.create_image(0, 0, image=background_image, anchor=tk.NW)
+    # Center the image on the canvas
+    x_offset = (screen_width - new_width) // 2
+    y_offset = (screen_height - new_height) // 2
+    canvas.create_image(x_offset, y_offset, image=background_image, anchor=tk.NW)
 
     # Place all other widgets on top of the canvas
     canvas.image = background_image  # Keep a reference to avoid garbage collection
